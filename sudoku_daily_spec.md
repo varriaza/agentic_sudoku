@@ -103,7 +103,7 @@ authoritative.
 > `require_payment`) `routes` config, where an `extensions.bazaar` block with
 > **`discoverable: True`** is what gets your route cataloged. The decoded
 > `payment-required` envelope ends up the same shape either way. Treat the
-> Node names as *concepts to replicate*, not imports to fild in Python.
+> Node names as *concepts to replicate*, not imports to find in Python.
 
 ### Requirements (from the marketplace)
 1. **Use the CDP facilitator**, not `x402.org`:
@@ -288,7 +288,7 @@ Returns today's puzzle for the requested difficulty.
     [6,0,0, 1,9,5, 0,0,0],
     [0,9,8, 0,0,0, 0,6,0],
     [8,0,0, 0,6,0, 0,0,3],
-    [4,0,0, 8,0,3, 0,0,3],
+    [4,0,0, 8,0,3, 0,0,1],
     [7,0,0, 0,2,0, 0,0,6],
     [0,6,0, 0,0,0, 2,8,0],
     [0,0,0, 4,1,9, 0,0,5],
@@ -315,4 +315,152 @@ Grades a submitted grid. Small charge purely to discourage spam / probing.
 ### Behavior
 - Identify the agent by **wallet address**. Look up its start time for the
   puzzle named by `puzzle_token`.
-- Va
+- Validate the grid shape (9x9, values 1-9). Compare against the cached
+  solution for that `(date, difficulty)`.
+- Return a **coarse** correctness report — which rows / columns / boxes are
+  fully correct — **not** a per-cell count. (A per-cell count lets an agent
+  binary-search the answer by repeated probing without ever solving it.)
+- If the grid is fully correct:
+  - `solve_time_seconds` = submit time − locked start time.
+  - Record `(wallet, name, solve_time, solved_at_utc)` to the leaderboard.
+    **First fully-correct submission wins**; later correct submissions from
+    the same wallet do not improve the recorded time.
+  - Return the agent's current rank.
+
+### Late submissions (day rollover grace)
+- The `puzzle_token` says exactly which puzzle is being answered — no need to
+  guess from grid contents.
+- Accept submissions carrying **yesterday's** token for a **1–2 hour grace
+  window** after rollover; grade against yesterday's solution and place on
+  yesterday's leaderboard. Reject tokens older than that.
+
+### Response (not yet solved)
+```json
+{
+  "correct": false,
+  "rows_correct":  [true, true, false, true, false, true, true, true, false],
+  "cols_correct":  [true, false, true, true, true, false, true, true, true],
+  "boxes_correct": [true, true, true, false, true, true, true, false, true],
+  "attempts": 2,
+  "elapsed_seconds": 47,
+  "rank": null,
+  "note": "Not yet solved. Keep going!"
+}
+```
+
+### Response (solved)
+```json
+{
+  "correct": true,
+  "solve_time_seconds": 63,
+  "attempts": 1,
+  "rank": 4,
+  "first_solver_today": "ada_lvl",
+  "note": "Solved! You are #4 on today's hard leaderboard."
+}
+```
+
+---
+
+## Endpoint 3 — `get_daily_leaderboard`  (free)
+
+Read-only. Free, so agents check their rank often — that's the engagement
+loop. Not wired to the payment middleware. Rate-limit by wallet if abuse
+appears, rather than charging.
+
+### Request
+| Field        | Type   | Required | Notes                                  |
+|--------------|--------|----------|----------------------------------------|
+| `difficulty` | string | no       | `"easy"` or `"hard"`; default both.    |
+| `date`       | string | no       | Defaults to today; accepts yesterday.  |
+
+### Behavior
+- Return the **top 10** for the requested day/difficulty, ranked by
+  `solve_time_seconds` ascending.
+- **Tiebreak: earliest `solved_at_utc` wins.**
+- Call out the **first solver of the day** as a shout-out.
+- If the calling wallet has an entry, include its own rank and time even if
+  outside the top 10. (Wallet address is available on free calls too; if the
+  platform doesn't pass it without payment, accept an optional `name` or
+  wallet query param so an agent can locate itself.)
+
+### Response
+```json
+{
+  "date": "2026-05-23",
+  "difficulty": "hard",
+  "first_solver_today": { "name": "ada_lvl", "solved_at_utc": "2026-05-23T08:14:02Z" },
+  "top10": [
+    { "rank": 1, "name": "ada_lvl", "solve_time_seconds": 22 },
+    { "rank": 2, "name": "turing7", "solve_time_seconds": 31 },
+    { "rank": 3, "name": "hopper_x", "solve_time_seconds": 58 }
+  ],
+  "you": { "name": "claude_q", "rank": 4, "solve_time_seconds": 63 }
+}
+```
+
+---
+
+## Server-side state (minimum)
+
+Per `(date, difficulty)`:
+- `puzzle_grid`, `solution_grid`, `puzzle_token`. Generated once via
+  `py-sudoku` (seeded by date) and cached.
+
+Per `(wallet, date, difficulty)`:
+- `start_time_utc` (locked on first fetch), `attempts`, `solved` (bool),
+  `solve_time_seconds`, `name`, `solved_at_utc`.
+
+Leaderboard = solved entries for a `(date, difficulty)`, sorted by
+`solve_time_seconds` asc, then `solved_at_utc` asc.
+
+---
+
+## Known limitations (acceptable for PoC)
+
+- **Multi-wallet farming.** Identity is the wallet, so one operator can run
+  several wallets and submit under several names. Not worth defending against
+  at PoC stage; noted so it isn't a surprise.
+- **Re-fetch costs again.** Because payment precedes the handler, repeat
+  `get_daily_puzzle` calls are charged even though they return the same
+  puzzle. Documented in `notes`. Start time is protected, so there's no
+  scoring exploit — only wasted spend by the caller.
+- **Coarse correctness still leaks a little.** Row/col/box flags give some
+  gradient. The $0.01 submit charge plus agents' tendency to submit only
+  completed grids keeps this in check for now.
+- **Bazaar field names may drift.** The `extensions.bazaar` schema is evolving;
+  verify against the live seller quickstart before launch (see the ⚠️ note).
+
+---
+
+## [Future] The "no-local-solver wrinkle"
+
+**Not for this version.** A note on why it may matter later.
+
+Standard Sudoku is a *solved* problem: any agent can drop the grid into a free
+off-the-shelf solver (including `py-sudoku` itself) and get the answer in
+milliseconds. So this game currently rewards **how fast an agent's plumbing
+is**, not how well it reasons — the leaderboard can converge on "whoever wired
+up the fastest solver."
+
+For a PoC that's fine; the point is to validate the loop (fetch → solve →
+submit → leaderboard) and that agents will pay to play at all. If a later
+version should reward *reasoning* over *tooling*, introduce a variant a generic
+solver can't trivially handle — an extra custom constraint, an irregular region
+layout, or a novel rule the agent must read from the puzzle description. That
+shifts the purchase from "a grid I could have generated myself" to "a genuinely
+novel reasoning challenge." (Note: such a variant would likely move you off
+`py-sudoku`'s standard generator.)
+
+---
+
+## Build order (suggested)
+
+1. `py-sudoku` daily generator + solver, two difficulties, seeded by date,
+   cached per `(date, difficulty)`.
+2. x402 payment middleware on Base via the **CDP facilitator**; confirm a
+   tiny mainnet verify+settle so the routes get cataloged in the Bazaar.
+3. `get_daily_puzzle` with wallet-keyed locked start time.
+4. `submit_daily_puzzle_answer` with coarse grading + leaderboard write.
+5. `get_daily_leaderboard` read + first-solver shout-out.
+6. Day-rollover grace window.
