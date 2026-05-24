@@ -5,7 +5,7 @@ from typing import Optional
 class SubmitAnswerRequest(BaseModel):
     puzzle_token: str
     grid: list[list[int]]
-    name: str
+    name: str = Field(max_length=8)
 
     @field_validator("name", mode="before")
     @classmethod
