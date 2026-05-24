@@ -94,3 +94,29 @@ def test_grade_submission_box_indices():
     assert result["boxes_correct"][0] is False
     # box 8 = rows 6-8, cols 6-8 — untouched
     assert result["boxes_correct"][8] is True
+
+
+def test_grade_submission_all_cells_wrong():
+    all_ones = [[1] * 9 for _ in range(9)]
+    result = grade_submission(all_ones, VALID_SOLUTION)
+    assert result["correct"] is False
+    assert not any(result["rows_correct"])
+    assert not any(result["cols_correct"])
+    assert not any(result["boxes_correct"])
+
+
+def test_validate_grid_shape_none_input():
+    error = validate_grid_shape(None)
+    assert error is not None
+
+
+def test_validate_grid_shape_empty_list():
+    error = validate_grid_shape([])
+    assert error is not None
+
+
+def test_validate_grid_shape_negative_value():
+    grid = [list(row) for row in VALID_SOLUTION]
+    grid[4][4] = -1
+    error = validate_grid_shape(grid)
+    assert error is not None

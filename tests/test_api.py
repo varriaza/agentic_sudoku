@@ -332,3 +332,109 @@ def test_leaderboard_response_has_required_fields(client):
 def test_leaderboard_invalid_difficulty_returns_400(client):
     resp = client.get("/get_daily_leaderboard?difficulty=medium")
     assert resp.status_code == 400
+
+
+def test_leaderboard_explicit_date_today_returns_200(client):
+    date_str = _today_utc().isoformat()
+    resp = client.get(f"/get_daily_leaderboard?difficulty=easy&date={date_str}")
+    assert resp.status_code == 200
+    assert resp.json()["date"] == date_str
+
+
+def test_leaderboard_invalid_date_format_returns_400(client):
+    resp = client.get("/get_daily_leaderboard?difficulty=easy&date=notadate")
+    assert resp.status_code == 400
+
+
+def test_leaderboard_date_too_far_in_past_returns_400(client):
+    resp = client.get("/get_daily_leaderboard?difficulty=easy&date=2020-01-01")
+    assert resp.status_code == 400
+
+
+# --- Unhappy paths: missing required fields ---
+
+def test_submit_missing_puzzle_token_returns_422(client):
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"grid": [[1] * 9 for _ in range(9)], "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 422
+
+
+def test_submit_missing_grid_returns_422(client):
+    token = _get_puzzle_token(client, "easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 422
+
+
+def test_submit_missing_name_returns_422(client):
+    token = _get_puzzle_token(client, "easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": [[1] * 9 for _ in range(9)]},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 422
+
+
+def test_submit_missing_wallet_returns_401(client):
+    token = _get_puzzle_token(client, "easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": [[1] * 9 for _ in range(9)], "name": "bot"},
+    )
+    assert resp.status_code == 401
+
+
+def test_submit_future_token_returns_400(client):
+    from datetime import timedelta
+    future = (_today_utc() + timedelta(days=1)).isoformat()
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": f"{future}-easy", "grid": [[1] * 9 for _ in range(9)], "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 400
+
+
+# --- Idempotency ---
+
+def test_submit_correct_twice_does_not_add_duplicate_leaderboard_entry(client):
+    token = _get_puzzle_token(client, "easy")
+    solution = _get_correct_solution("easy")
+    body = {"puzzle_token": token, "grid": solution, "name": "bot"}
+
+    r1 = client.post("/submit_daily_puzzle_answer", json=body, headers=wallet_headers())
+    assert r1.json()["rank"] == 1
+
+    r2 = client.post("/submit_daily_puzzle_answer", json=body, headers=wallet_headers())
+    assert r2.json()["correct"] is True
+
+    lb = state_module.get_leaderboard(_today_utc().isoformat(), "easy")
+    assert len(lb) == 1
+
+
+# --- Difficulty isolation ---
+
+def test_leaderboard_hard_is_empty_when_only_easy_solved(client):
+    _submit_correct(client, TEST_WALLET, "easy_solver", difficulty="easy")
+    resp = client.get("/get_daily_leaderboard?difficulty=hard")
+    assert resp.json()["top10"] == []
+
+
+# --- Solve time ---
+
+def test_submit_correct_solve_time_is_nonnegative(client):
+    token = _get_puzzle_token(client, "easy")
+    solution = _get_correct_solution("easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": solution, "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.json()["solve_time_seconds"] >= 0

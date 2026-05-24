@@ -128,3 +128,36 @@ def test_get_rank_returns_correct_position():
 
 def test_get_rank_returns_none_if_not_solved():
     assert get_rank("0xABC", "2026-05-23", "easy") is None
+
+
+def test_get_rank_returns_none_for_session_that_exists_but_not_solved():
+    get_or_create_session("0xABC", "2026-05-23", "easy")
+    assert get_rank("0xABC", "2026-05-23", "easy") is None
+
+
+def test_clear_state_removes_sessions():
+    get_or_create_session("0xABC", "2026-05-23", "easy")
+    clear_state()
+    assert get_session("0xABC", "2026-05-23", "easy") is None
+
+
+def test_clear_state_removes_leaderboard():
+    now = datetime.now(timezone.utc)
+    get_or_create_session("0xABC", "2026-05-23", "easy")
+    record_solve("0xABC", "2026-05-23", "easy", "ada", 30.0, now)
+    clear_state()
+    assert get_leaderboard("2026-05-23", "easy") == []
+
+
+def test_leaderboard_different_dates_are_isolated():
+    now = datetime.now(timezone.utc)
+    get_or_create_session("0xABC", "2026-05-23", "easy")
+    record_solve("0xABC", "2026-05-23", "easy", "solver", 30.0, now)
+    assert get_leaderboard("2026-05-24", "easy") == []
+
+
+def test_leaderboard_different_difficulties_are_isolated():
+    now = datetime.now(timezone.utc)
+    get_or_create_session("0xABC", "2026-05-23", "easy")
+    record_solve("0xABC", "2026-05-23", "easy", "solver", 30.0, now)
+    assert get_leaderboard("2026-05-23", "hard") == []

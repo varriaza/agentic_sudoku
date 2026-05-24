@@ -28,6 +28,20 @@ Wallet address = agent identity. Start time is locked on first puzzle fetch and 
 | `POST /submit_daily_puzzle_answer` | $0.01 | Grades a submitted 9×9 solution; updates leaderboard on full solve |
 | `GET /get_daily_leaderboard` | free | Top 10 solvers for the day, ranked by solve time |
 
+## Development Setup
+
+After cloning, run once to enable the pre-commit test hook:
+
+```bash
+git config core.hooksPath hooks
+```
+
+Tests will now run automatically before every commit and block it on failure. To run tests manually:
+
+```bash
+SKIP_PAYMENT=true pytest tests/
+```
+
 ## Spec
 
 See [`sudoku_daily_spec.md`](./sudoku_daily_spec.md) for the full design: puzzle generation, payment wiring, endpoint schemas, server-side state model, and known PoC limitations.

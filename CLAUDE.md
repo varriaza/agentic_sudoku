@@ -7,7 +7,8 @@ Daily Sudoku game served as paid API endpoints. Agents pay USDC via x402 to fetc
 Python 3.12, FastAPI, uvicorn, py-sudoku, x402, Pydantic v2, pytest
 
 Run with: `SKIP_PAYMENT=true python run.py`  
-Tests: `venv/bin/pytest tests/`
+Tests: `SKIP_PAYMENT=true pytest tests/`  
+Hook setup (run once after cloning): `git config core.hooksPath hooks`
 
 ---
 
@@ -72,17 +73,22 @@ All date operations use `datetime.now(timezone.utc).date()` throughout to avoid 
 
 ## Tests (`tests/`)
 
+**Keep this section current.** When adding or removing test files or significantly changing coverage, update the file descriptions and counts here.
+
 ### `tests/test_puzzle.py`
-15 unit tests for `app/puzzle.py`: deterministic seeding, board normalization, caching, token format/parsing.
+19 unit tests for `app/puzzle.py`: deterministic seeding, board normalization, caching, token format/parsing, hard-vs-easy blank count, solution validity (rows/cols/boxes each contain 1–9).
 
 ### `tests/test_state.py`
-14 unit tests for `app/state.py`: session creation/locking, attempt counting, solve idempotency, leaderboard sort order and tiebreaking.
+19 unit tests for `app/state.py`: session creation/locking, attempt counting, solve idempotency, leaderboard sort order and tiebreaking, `clear_state`, date/difficulty key isolation.
 
 ### `tests/test_grading.py`
-11 unit tests for `app/grading.py`: shape validation (including 0-rejection), row/col/box correctness flags, box index layout.
+15 unit tests for `app/grading.py`: shape validation (including 0-rejection, None, empty list, negative values), row/col/box correctness flags, all-wrong grid, box index layout.
+
+### `tests/test_token_window.py`
+10 unit tests for `_validate_token_window` in `app/main.py`: today's token, yesterday within 2h grace, at boundary (rejected), after grace (rejected), future token, old token, invalid format/difficulty.
 
 ### `tests/test_api.py`
-29 integration tests for all three endpoints via FastAPI `TestClient`. Sets `SKIP_PAYMENT=true` at the top before any imports. Uses `X-Payer-Address` header to inject wallet identity. Uses `_today_utc()` helper (`datetime.now(timezone.utc).date()`) everywhere dates are compared.
+40 integration tests for all three endpoints via FastAPI `TestClient`. Sets `SKIP_PAYMENT=true` at the top before any imports. Uses `X-Payer-Address` header to inject wallet identity. Uses `_today_utc()` helper everywhere dates are compared. Covers happy paths, missing/invalid fields (422), auth errors (401), bad tokens (400), leaderboard date validation, idempotent double-solve, easy/hard isolation.
 
 ---
 
