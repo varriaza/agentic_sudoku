@@ -5,9 +5,9 @@ from typing import Optional
 class SubmitAnswerRequest(BaseModel):
     puzzle_token: str
     grid: list[list[int]]
-    name: str = Field(max_length=8)
+    name: str
 
-    @field_validator("name")
+    @field_validator("name", mode="before")
     @classmethod
     def truncate_name(cls, v: str) -> str:
         return v[:8].strip()
