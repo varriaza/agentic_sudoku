@@ -155,11 +155,13 @@ def test_submit_increments_attempts(client):
 
 
 def test_submit_rank_reflects_leaderboard_order(client):
-    token1 = _get_puzzle_token(client, "easy", TEST_WALLET)
+    # TEST_WALLET_2 fetches first -> has larger elapsed -> ranks #2 (slower)
     token2 = _get_puzzle_token(client, "easy", TEST_WALLET_2)
+    # TEST_WALLET fetches second -> has smaller elapsed -> ranks #1 (faster)
+    token1 = _get_puzzle_token(client, "easy", TEST_WALLET)
     solution = _get_correct_solution("easy")
 
-    # First solver
+    # First solver to submit (TEST_WALLET, started later = faster elapsed)
     r1 = client.post(
         "/submit_daily_puzzle_answer",
         json={"puzzle_token": token1, "grid": solution, "name": "first"},
@@ -167,7 +169,7 @@ def test_submit_rank_reflects_leaderboard_order(client):
     )
     assert r1.json()["rank"] == 1
 
-    # Second solver
+    # Second solver to submit (TEST_WALLET_2, started earlier = slower elapsed)
     r2 = client.post(
         "/submit_daily_puzzle_answer",
         json={"puzzle_token": token2, "grid": solution, "name": "second"},
