@@ -88,6 +88,68 @@ def create_app() -> FastAPI:
             ),
         )
 
+    @app.post("/submit_daily_puzzle_answer")
+    def submit_daily_puzzle_answer(
+        request: Request,
+        body: SubmitAnswerRequest,
+    ):
+        wallet = get_wallet_address(request)
+        now = datetime.now(timezone.utc)
+
+        # Validate and parse token
+        try:
+            puzzle_date, difficulty = _validate_token_window(body.puzzle_token, now)
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Agent must have fetched the puzzle first
+        session = state.get_session(wallet, puzzle_date.isoformat(), difficulty)
+        if session is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No puzzle session found. Call /get_daily_puzzle first.",
+            )
+
+        # Validate submitted grid shape
+        error = validate_grid_shape(body.grid)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+
+        # Grade against cached solution
+        _, solution = get_cached_puzzle(puzzle_date, difficulty)
+        grade = grade_submission(body.grid, solution)
+        attempts = state.increment_attempts(wallet, puzzle_date.isoformat(), difficulty)
+        elapsed = (now - session["start_time_utc"]).total_seconds()
+
+        if not grade["correct"]:
+            return SubmitResponseIncorrect(
+                rows_correct=grade["rows_correct"],
+                cols_correct=grade["cols_correct"],
+                boxes_correct=grade["boxes_correct"],
+                attempts=attempts,
+                elapsed_seconds=elapsed,
+                note="Not yet solved. Keep going!",
+            )
+
+        # Correct — record to leaderboard (idempotent: won't overwrite first solve)
+        state.record_solve(
+            wallet, puzzle_date.isoformat(), difficulty,
+            body.name[:8], elapsed, now,
+        )
+        rank = state.get_rank(wallet, puzzle_date.isoformat(), difficulty)
+        lb = state.get_leaderboard(puzzle_date.isoformat(), difficulty)
+        first_solver_name = lb[0]["name"] if lb else None
+
+        return SubmitResponseCorrect(
+            solve_time_seconds=elapsed,
+            attempts=attempts,
+            rank=rank,
+            first_solver_today=first_solver_name,
+            note=f"Solved! You are #{rank} on today's {difficulty} leaderboard.",
+        )
+
     return app
 
 

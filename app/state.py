@@ -62,7 +62,7 @@ def record_solve(
         "solved_at_utc": solved_at,
     })
     _leaderboard[lb_key].sort(
-        key=lambda e: (e["solve_time_seconds"], e["solved_at_utc"])
+        key=lambda e: (round(e["solve_time_seconds"]), e["solved_at_utc"])
     )
 
 

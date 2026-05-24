@@ -92,3 +92,152 @@ def test_get_daily_puzzle_invalid_difficulty_returns_400(client):
 def test_get_daily_puzzle_missing_wallet_returns_401(client):
     resp = client.get("/get_daily_puzzle?difficulty=easy")
     assert resp.status_code == 401
+
+
+# --- POST /submit_daily_puzzle_answer ---
+
+def _get_puzzle_token(client, difficulty="easy", wallet=TEST_WALLET):
+    resp = client.get(f"/get_daily_puzzle?difficulty={difficulty}", headers=wallet_headers(wallet))
+    return resp.json()["puzzle_token"]
+
+
+def _get_correct_solution(difficulty="easy"):
+    from app.puzzle import get_cached_puzzle
+    _, solution = get_cached_puzzle(date.today(), difficulty)
+    return solution
+
+
+def test_submit_wrong_grid_returns_correct_false(client):
+    token = _get_puzzle_token(client, "easy")
+    # Submit a grid that is all 1s (definitely wrong)
+    bad_grid = [[1] * 9 for _ in range(9)]
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": bad_grid, "name": "testbot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["correct"] is False
+    assert "rows_correct" in data
+    assert "cols_correct" in data
+    assert "boxes_correct" in data
+    assert data["attempts"] == 1
+    assert data["rank"] is None
+
+
+def test_submit_correct_grid_returns_correct_true(client):
+    token = _get_puzzle_token(client, "easy")
+    solution = _get_correct_solution("easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": solution, "name": "testbot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["correct"] is True
+    assert "solve_time_seconds" in data
+    assert data["rank"] == 1
+    assert "note" in data
+
+
+def test_submit_increments_attempts(client):
+    token = _get_puzzle_token(client, "easy")
+    bad_grid = [[1] * 9 for _ in range(9)]
+    for i in range(1, 4):
+        resp = client.post(
+            "/submit_daily_puzzle_answer",
+            json={"puzzle_token": token, "grid": bad_grid, "name": "testbot"},
+            headers=wallet_headers(),
+        )
+        assert resp.json()["attempts"] == i
+
+
+def test_submit_rank_reflects_leaderboard_order(client):
+    token1 = _get_puzzle_token(client, "easy", TEST_WALLET)
+    token2 = _get_puzzle_token(client, "easy", TEST_WALLET_2)
+    solution = _get_correct_solution("easy")
+
+    # First solver
+    r1 = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token1, "grid": solution, "name": "first"},
+        headers=wallet_headers(TEST_WALLET),
+    )
+    assert r1.json()["rank"] == 1
+
+    # Second solver
+    r2 = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token2, "grid": solution, "name": "second"},
+        headers=wallet_headers(TEST_WALLET_2),
+    )
+    assert r2.json()["rank"] == 2
+
+
+def test_submit_invalid_grid_shape_returns_400(client):
+    token = _get_puzzle_token(client, "easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": [[1] * 9 for _ in range(8)], "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 400
+
+
+def test_submit_invalid_grid_values_returns_400(client):
+    token = _get_puzzle_token(client, "easy")
+    bad_grid = [[0] * 9 for _ in range(9)]  # 0s not valid for submission
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": bad_grid, "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 400
+
+
+def test_submit_unknown_token_returns_400(client):
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": "1999-01-01-easy", "grid": [[1]*9]*9, "name": "bot"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 400
+
+
+def test_submit_without_fetching_first_returns_400(client):
+    # Agent submits without ever calling get_daily_puzzle first
+    today_token = f"{date.today().isoformat()}-easy"
+    solution = _get_correct_solution("easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": today_token, "grid": solution, "name": "sneaky"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 400
+
+
+def test_submit_name_truncated_to_8_chars(client):
+    token = _get_puzzle_token(client, "easy")
+    solution = _get_correct_solution("easy")
+    resp = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": solution, "name": "averylongname"},
+        headers=wallet_headers(),
+    )
+    assert resp.status_code == 200
+    # Check leaderboard entry has truncated name
+    lb = state_module.get_leaderboard(date.today().isoformat(), "easy")
+    assert len(lb[0]["name"]) <= 8
+
+
+def test_submit_first_solver_shoutout(client):
+    token = _get_puzzle_token(client, "easy")
+    solution = _get_correct_solution("easy")
+    r1 = client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": solution, "name": "champ"},
+        headers=wallet_headers(),
+    )
+    assert r1.json()["first_solver_today"] == "champ"
