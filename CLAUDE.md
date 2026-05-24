@@ -7,7 +7,8 @@ Daily Sudoku game served as paid API endpoints. Agents pay USDC via x402 to fetc
 Python 3.12, FastAPI, uvicorn, py-sudoku, x402, Pydantic v2, pytest
 
 Run with: `SKIP_PAYMENT=true python run.py`  
-Tests: `SKIP_PAYMENT=true pytest tests/`
+Tests: `SKIP_PAYMENT=true pytest tests/`  
+Hook setup (run once after cloning): `git config core.hooksPath hooks`
 
 ---
 
