@@ -243,3 +243,88 @@ def test_submit_first_solver_shoutout(client):
         headers=wallet_headers(),
     )
     assert r1.json()["first_solver_today"] == "champ"
+
+
+# --- GET /get_daily_leaderboard ---
+
+def _submit_correct(client, wallet, name, difficulty="easy"):
+    """Helper: fetch puzzle then submit correct answer."""
+    token = _get_puzzle_token(client, difficulty, wallet)
+    solution = _get_correct_solution(difficulty)
+    client.post(
+        "/submit_daily_puzzle_answer",
+        json={"puzzle_token": token, "grid": solution, "name": name},
+        headers=wallet_headers(wallet),
+    )
+
+
+def test_leaderboard_empty_when_no_solvers(client):
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["top10"] == []
+    assert data["first_solver_today"] is None
+
+
+def test_leaderboard_contains_solver_after_solve(client):
+    _submit_correct(client, TEST_WALLET, "ada_lvl")
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    data = resp.json()
+    assert len(data["top10"]) == 1
+    assert data["top10"][0]["name"] == "ada_lvl"
+    assert data["top10"][0]["rank"] == 1
+
+
+def test_leaderboard_first_solver_shoutout(client):
+    _submit_correct(client, TEST_WALLET, "first_on")
+    _submit_correct(client, TEST_WALLET_2, "second_on")
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    data = resp.json()
+    assert data["first_solver_today"]["name"] == "first_on"
+
+
+def test_leaderboard_top10_capped_at_10(client):
+    wallets = [f"0x{'0'*39}{i}" for i in range(12)]
+    for i, wallet in enumerate(wallets):
+        _submit_correct(client, wallet, f"bot{i:02d}")
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    assert len(resp.json()["top10"]) == 10
+
+
+def test_leaderboard_you_field_when_wallet_provided(client):
+    _submit_correct(client, TEST_WALLET, "ada_lvl")
+    resp = client.get(
+        "/get_daily_leaderboard?difficulty=easy",
+        headers=wallet_headers(TEST_WALLET),
+    )
+    data = resp.json()
+    assert data["you"] is not None
+    assert data["you"]["name"] == "ada_lvl"
+    assert data["you"]["rank"] == 1
+
+
+def test_leaderboard_you_field_absent_when_not_solved(client):
+    resp = client.get(
+        "/get_daily_leaderboard?difficulty=easy",
+        headers=wallet_headers(TEST_WALLET),
+    )
+    assert resp.json()["you"] is None
+
+
+def test_leaderboard_defaults_to_today(client):
+    _submit_correct(client, TEST_WALLET, "today_solver")
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    assert resp.json()["date"] == date.today().isoformat()
+
+
+def test_leaderboard_response_has_required_fields(client):
+    resp = client.get("/get_daily_leaderboard?difficulty=easy")
+    data = resp.json()
+    assert "date" in data
+    assert "difficulty" in data
+    assert "top10" in data
+
+
+def test_leaderboard_invalid_difficulty_returns_400(client):
+    resp = client.get("/get_daily_leaderboard?difficulty=medium")
+    assert resp.status_code == 400

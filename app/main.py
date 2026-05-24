@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone, timedelta
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
@@ -136,7 +137,7 @@ def create_app() -> FastAPI:
         # Correct — record to leaderboard (idempotent: won't overwrite first solve)
         state.record_solve(
             wallet, puzzle_date.isoformat(), difficulty,
-            body.name[:8], elapsed, now,
+            body.name, elapsed, now,
         )
         rank = state.get_rank(wallet, puzzle_date.isoformat(), difficulty)
         lb = state.get_leaderboard(puzzle_date.isoformat(), difficulty)
@@ -148,6 +149,65 @@ def create_app() -> FastAPI:
             rank=rank,
             first_solver_today=first_solver_name,
             note=f"Solved! You are #{rank} on today's {difficulty} leaderboard.",
+        )
+
+    @app.get("/get_daily_leaderboard", response_model=LeaderboardResponse)
+    def get_daily_leaderboard(
+        request: Request,
+        difficulty: str = Query("easy", description="easy or hard"),
+        date_param: Optional[str] = Query(None, alias="date", description="YYYY-MM-DD, defaults to today"),
+    ):
+        if difficulty not in VALID_DIFFICULTIES:
+            raise HTTPException(status_code=400, detail=f"difficulty must be one of {sorted(VALID_DIFFICULTIES)}")
+
+        if date_param is None:
+            target_date = date.today()
+        else:
+            try:
+                target_date = date.fromisoformat(date_param)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            if target_date not in (today, yesterday):
+                raise HTTPException(status_code=400, detail="date must be today or yesterday")
+
+        date_str = target_date.isoformat()
+        lb = state.get_leaderboard(date_str, difficulty)
+        top10 = [
+            LeaderboardEntry(rank=i + 1, name=e["name"], solve_time_seconds=e["solve_time_seconds"])
+            for i, e in enumerate(lb[:10])
+        ]
+        first_solver = None
+        if lb:
+            # First solver = earliest solved_at_utc, not necessarily fastest solve time
+            first = min(lb, key=lambda e: e["solved_at_utc"])
+            first_solver = FirstSolverInfo(
+                name=first["name"],
+                solved_at_utc=first["solved_at_utc"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+
+        # Optional wallet for "you" field
+        wallet = request.headers.get("X-Payer-Address")
+        if not wallet and hasattr(request.state, "payer"):
+            wallet = request.state.payer
+        you = None
+        if wallet:
+            session = state.get_session(wallet, date_str, difficulty)
+            if session and session["solved"]:
+                rank = state.get_rank(wallet, date_str, difficulty)
+                you = YouInfo(
+                    name=session["name"],
+                    rank=rank,
+                    solve_time_seconds=session["solve_time_seconds"],
+                )
+
+        return LeaderboardResponse(
+            date=date_str,
+            difficulty=difficulty,
+            first_solver_today=first_solver,
+            top10=top10,
+            you=you,
         )
 
     return app
