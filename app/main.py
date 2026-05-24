@@ -1,5 +1,4 @@
 from datetime import date, datetime, timezone, timedelta
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
