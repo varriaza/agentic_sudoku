@@ -1,5 +1,7 @@
 from typing import Optional
 
+__all__ = ["validate_grid_shape", "grade_submission"]
+
 
 def validate_grid_shape(grid: list) -> Optional[str]:
     if not isinstance(grid, list) or len(grid) != 9:
