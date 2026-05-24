@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+if [ -x .venv/bin/pytest ]; then
+    SKIP_PAYMENT=true .venv/bin/pytest tests/ -q
+else
+    SKIP_PAYMENT=true python -m pytest tests/ -q
+fi
