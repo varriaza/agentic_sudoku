@@ -103,3 +103,40 @@ def test_parse_token_invalid_format_raises():
     import pytest
     with pytest.raises(ValueError):
         parse_token("not-a-token")
+
+
+def test_get_cached_puzzle_hard_has_more_blanks_than_easy():
+    d = date(2026, 5, 23)
+    easy_grid, _ = get_cached_puzzle(d, "easy")
+    hard_grid, _ = get_cached_puzzle(d, "hard")
+    easy_blanks = sum(cell == 0 for row in easy_grid for cell in row)
+    hard_blanks = sum(cell == 0 for row in hard_grid for cell in row)
+    assert hard_blanks > easy_blanks
+
+
+def test_get_cached_puzzle_solution_rows_each_contain_1_through_9():
+    d = date(2026, 5, 23)
+    _, solution = get_cached_puzzle(d, "easy")
+    for row in solution:
+        assert sorted(row) == list(range(1, 10))
+
+
+def test_get_cached_puzzle_solution_cols_each_contain_1_through_9():
+    d = date(2026, 5, 23)
+    _, solution = get_cached_puzzle(d, "easy")
+    for col_idx in range(9):
+        col = [solution[r][col_idx] for r in range(9)]
+        assert sorted(col) == list(range(1, 10))
+
+
+def test_get_cached_puzzle_solution_boxes_each_contain_1_through_9():
+    d = date(2026, 5, 23)
+    _, solution = get_cached_puzzle(d, "easy")
+    for box_r in range(3):
+        for box_c in range(3):
+            box = [
+                solution[box_r * 3 + r][box_c * 3 + c]
+                for r in range(3)
+                for c in range(3)
+            ]
+            assert sorted(box) == list(range(1, 10))
