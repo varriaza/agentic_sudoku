@@ -2,7 +2,7 @@ import os
 os.environ["SKIP_PAYMENT"] = "true"  # must be set before importing app
 
 import pytest
-from datetime import date
+from datetime import date, datetime, timezone
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app import state as state_module
@@ -24,6 +24,10 @@ def client():
 
 def wallet_headers(wallet: str = TEST_WALLET) -> dict:
     return {"X-Payer-Address": wallet}
+
+
+def _today_utc() -> date:
+    return datetime.now(timezone.utc).date()
 
 
 # --- GET /get_daily_puzzle ---
@@ -103,7 +107,7 @@ def _get_puzzle_token(client, difficulty="easy", wallet=TEST_WALLET):
 
 def _get_correct_solution(difficulty="easy"):
     from app.puzzle import get_cached_puzzle
-    _, solution = get_cached_puzzle(date.today(), difficulty)
+    _, solution = get_cached_puzzle(_today_utc(), difficulty)
     return solution
 
 
@@ -210,7 +214,7 @@ def test_submit_unknown_token_returns_400(client):
 
 def test_submit_without_fetching_first_returns_400(client):
     # Agent submits without ever calling get_daily_puzzle first
-    today_token = f"{date.today().isoformat()}-easy"
+    today_token = f"{_today_utc().isoformat()}-easy"
     solution = _get_correct_solution("easy")
     resp = client.post(
         "/submit_daily_puzzle_answer",
@@ -230,7 +234,7 @@ def test_submit_name_truncated_to_8_chars(client):
     )
     assert resp.status_code == 200
     # Check leaderboard entry has truncated name
-    lb = state_module.get_leaderboard(date.today().isoformat(), "easy")
+    lb = state_module.get_leaderboard(_today_utc().isoformat(), "easy")
     assert len(lb[0]["name"]) <= 8
 
 
@@ -314,7 +318,7 @@ def test_leaderboard_you_field_absent_when_not_solved(client):
 def test_leaderboard_defaults_to_today(client):
     _submit_correct(client, TEST_WALLET, "today_solver")
     resp = client.get("/get_daily_leaderboard?difficulty=easy")
-    assert resp.json()["date"] == date.today().isoformat()
+    assert resp.json()["date"] == _today_utc().isoformat()
 
 
 def test_leaderboard_response_has_required_fields(client):

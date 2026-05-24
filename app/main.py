@@ -72,7 +72,7 @@ def create_app() -> FastAPI:
         if difficulty not in VALID_DIFFICULTIES:
             raise HTTPException(status_code=400, detail=f"difficulty must be one of {sorted(VALID_DIFFICULTIES)}")
         wallet = get_wallet_address(request)
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         grid, _ = get_cached_puzzle(today, difficulty)
         session = state.get_or_create_session(wallet, today.isoformat(), difficulty)
         token = puzzle_token(today, difficulty)
@@ -161,13 +161,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"difficulty must be one of {sorted(VALID_DIFFICULTIES)}")
 
         if date_param is None:
-            target_date = date.today()
+            target_date = datetime.now(timezone.utc).date()
         else:
             try:
                 target_date = date.fromisoformat(date_param)
             except ValueError:
                 raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
-            today = date.today()
+            today = datetime.now(timezone.utc).date()
             yesterday = today - timedelta(days=1)
             if target_date not in (today, yesterday):
                 raise HTTPException(status_code=400, detail="date must be today or yesterday")
