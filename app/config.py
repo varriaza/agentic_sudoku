@@ -10,3 +10,7 @@ USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 CDP_FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402/facilitator"
 NETWORK = "eip155:8453"
 GRACE_WINDOW_HOURS = 2
+
+# Path to the SQLite database file. Default lives at the project root.
+# Overridable via env var; tests point this at a per-test temp file.
+DB_PATH: str = os.getenv("DB_PATH", "./sudoku.db")

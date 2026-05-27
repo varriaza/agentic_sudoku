@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from app import config
+from app import config, db
 from app.grading import grade_submission, validate_grid_shape
 from app.models import (
     LeaderboardEntry,
@@ -59,6 +59,8 @@ def _validate_token_window(token: str, now: datetime) -> tuple[date, str]:
 
 
 def create_app() -> FastAPI:
+    # Ensure the SQLite schema exists before any request touches the store.
+    db.init_db()
     app = FastAPI(title="Daily Sudoku API")
 
     if not config.SKIP_PAYMENT:
