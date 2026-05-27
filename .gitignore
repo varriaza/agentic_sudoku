@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 docs/superpowers/
+*.db
+*.db-wal
+*.db-shm
