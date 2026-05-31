@@ -228,7 +228,7 @@ def _attach_payment_middleware(app: FastAPI) -> None:
             "Install it and verify import paths match your installed version."
         ) from e
 
-    facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=config.CDP_FACILITATOR_URL))
+    facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=config.FACILITATOR_URL))
     server = x402ResourceServer(facilitator)
     register_exact_evm_server(server)
 
