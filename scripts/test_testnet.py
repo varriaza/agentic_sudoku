@@ -113,6 +113,7 @@ async def main() -> None:
 
     results: dict[str, bool] = {}
     current_step = "unknown"
+    server_stderr = ""
 
     try:
         print("Waiting for server to start...")
@@ -188,6 +189,7 @@ async def main() -> None:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+        server_stderr = proc.stderr.read().decode("utf-8", errors="replace").strip()
 
     print("\n" + "=" * 50)
     for step, ok in results.items():
@@ -198,6 +200,10 @@ async def main() -> None:
     all_pass = len(results) == 3 and all(results.values())
     print("=" * 50)
     print(f"Result: {'ALL PASS ✓' if all_pass else 'FAILED ✗'}")
+    if not all_pass and server_stderr:
+        print("\n--- server stderr ---")
+        print(server_stderr)
+        print("--- end server stderr ---")
     sys.exit(0 if all_pass else 1)
 
 
