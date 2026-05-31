@@ -25,9 +25,12 @@ from app import state
 
 
 def get_wallet_address(request: Request) -> str:
-    """Extract wallet address set by x402 middleware, or test header fallback."""
-    if hasattr(request.state, "payer") and request.state.payer:
-        return request.state.payer
+    """Extract wallet address from x402 payment payload, or test header fallback."""
+    if hasattr(request.state, "payment_payload") and request.state.payment_payload:
+        auth = request.state.payment_payload.payload.get("authorization", {})
+        payer = auth.get("from")
+        if payer:
+            return payer
     wallet = request.headers.get("X-Payer-Address")
     if not wallet:
         raise HTTPException(status_code=401, detail="Wallet address not found in payment")
@@ -191,8 +194,6 @@ def create_app() -> FastAPI:
 
         # Optional wallet for "you" field
         wallet = request.headers.get("X-Payer-Address")
-        if not wallet and hasattr(request.state, "payer"):
-            wallet = request.state.payer
         you = None
         if wallet:
             session = state.get_session(wallet, date_str, difficulty)
@@ -217,83 +218,54 @@ def create_app() -> FastAPI:
 
 def _attach_payment_middleware(app: FastAPI) -> None:
     try:
-        from x402.fastapi.middleware import require_payment
-        from x402.facilitators import cdp_facilitator
+        from x402 import x402ResourceServer
+        from x402.http import HTTPFacilitatorClient, FacilitatorConfig
+        from x402.http.middleware.fastapi import payment_middleware
+        from x402.mechanisms.evm.exact import register_exact_evm_server
     except ImportError as e:
         raise RuntimeError(
             "x402 package not found or missing expected modules. "
             "Install it and verify import paths match your installed version."
         ) from e
 
-    GET_PUZZLE_EXAMPLE = {
-        "puzzle_token": "2026-05-23-hard",
-        "difficulty": "hard",
-        "date": "2026-05-23",
-        "grid": [[5, 3, 0, 0, 7, 0, 0, 0, 0]] * 9,
-        "start_time_utc": "2026-05-23T14:02:11Z",
-        "notes": "0 = empty cell. Submit the full grid to submit_daily_puzzle_answer using this puzzle_token.",
+    facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=config.FACILITATOR_URL))
+    server = x402ResourceServer(facilitator)
+    register_exact_evm_server(server)
+
+    routes = {
+        "GET /get_daily_puzzle": {
+            "accepts": {
+                "scheme": "exact",
+                "pay_to": config.MERCHANT_WALLET,
+                "price": "$0.03",
+                "network": config.NETWORK,
+                "max_timeout_seconds": 300,
+            },
+            "description": (
+                "Fetch today's shared Sudoku puzzle (easy or hard). "
+                "Returns a 9x9 grid (0 = blank), a puzzle_token, and your locked start time."
+            ),
+            "mime_type": "application/json",
+        },
+        "POST /submit_daily_puzzle_answer": {
+            "accepts": {
+                "scheme": "exact",
+                "pay_to": config.MERCHANT_WALLET,
+                "price": "$0.01",
+                "network": config.NETWORK,
+                "max_timeout_seconds": 300,
+            },
+            "description": (
+                "Submit a completed 9x9 grid for today's puzzle. "
+                "Returns coarse correctness (rows/cols/boxes), and on a full solve "
+                "your rank and solve time."
+            ),
+            "mime_type": "application/json",
+        },
     }
 
-    app.middleware("http")(
-        require_payment(
-            facilitator=cdp_facilitator(url=config.CDP_FACILITATOR_URL),
-            routes={
-                "/get_daily_puzzle": {
-                    "price": "$0.03",
-                    "network": config.NETWORK,
-                    "asset": config.USDC_BASE,
-                    "pay_to_address": config.MERCHANT_WALLET,
-                    "max_timeout_seconds": 300,
-                    "description": (
-                        "Fetch today's shared Sudoku puzzle (easy or hard). "
-                        "Returns a 9x9 grid (0 = blank), a puzzle_token, and your locked start time."
-                    ),
-                    "mime_type": "application/json",
-                    "extensions": {
-                        "bazaar": {
-                            "discoverable": True,
-                            "inputSchema": {
-                                "queryParams": {
-                                    "difficulty": {
-                                        "type": "string",
-                                        "description": "easy or hard",
-                                        "required": True,
-                                    }
-                                }
-                            },
-                            "outputSchema": {
-                                "type": "object",
-                                "example": GET_PUZZLE_EXAMPLE,
-                            },
-                        }
-                    },
-                },
-                "/submit_daily_puzzle_answer": {
-                    "price": "$0.01",
-                    "network": config.NETWORK,
-                    "asset": config.USDC_BASE,
-                    "pay_to_address": config.MERCHANT_WALLET,
-                    "max_timeout_seconds": 300,
-                    "description": (
-                        "Submit a completed 9x9 grid for today's puzzle. "
-                        "Returns coarse correctness (rows/cols/boxes), and on a full solve "
-                        "your rank and solve time."
-                    ),
-                    "mime_type": "application/json",
-                    "extensions": {
-                        "bazaar": {
-                            "discoverable": True,
-                            "inputSchema": {
-                                "body": {
-                                    "puzzle_token": {"type": "string", "required": True},
-                                    "grid": {"type": "array", "required": True},
-                                    "name": {"type": "string", "required": True, "maxLength": 8},
-                                }
-                            },
-                            "outputSchema": {"type": "object"},
-                        }
-                    },
-                },
-            },
-        )
-    )
+    _mw = payment_middleware(routes, server)
+
+    @app.middleware("http")
+    async def x402_mw(request, call_next):
+        return await _mw(request, call_next)

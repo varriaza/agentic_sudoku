@@ -15,7 +15,7 @@ Hook setup (run once after cloning): `git config core.hooksPath hooks`
 ## App Files (`app/`)
 
 ### `app/config.py`
-All constants and env vars. `SKIP_PAYMENT` (bool, default false) bypasses x402 in dev/tests. `MERCHANT_WALLET`, `USDC_BASE`, `CDP_FACILITATOR_URL`, `NETWORK`, `GRACE_WINDOW_HOURS`, `DB_PATH` (default `./sudoku.db`). Other modules access via `from app import config` then `config.X`.
+All constants and env vars. `SKIP_PAYMENT` (bool, default false) bypasses x402 in dev/tests. `TESTNET` (bool, default false) switches `NETWORK` to `eip155:84532` (Base Sepolia) and `USDC_BASE` to the Base Sepolia USDC contract — mainnet values are the defaults. `MERCHANT_WALLET`, `CDP_FACILITATOR_URL`, `GRACE_WINDOW_HOURS`, `DB_PATH` (default `./sudoku.db`). Other modules access via `from app import config` then `config.X`.
 
 ### `app/db.py`
 SQLite connection management and schema bootstrap.
@@ -60,7 +60,7 @@ All Pydantic request/response models:
 FastAPI app factory and all three route handlers.
 
 `create_app()` calls `db.init_db()` to bootstrap the schema, then builds the app and conditionally attaches x402 middleware (skipped when `SKIP_PAYMENT=true`). Module-level helpers:
-- `get_wallet_address(request)` — reads `request.state.payer` (set by x402 in prod) or falls back to `X-Payer-Address` header (tests), 401 if neither
+- `get_wallet_address(request)` — reads `request.state.payment_payload.payload["authorization"]["from"]` (set by x402 v2 in prod) or falls back to `X-Payer-Address` header (tests), 401 if neither
 - `_validate_token_window(token, now)` — accepts today's or yesterday's token (within `GRACE_WINDOW_HOURS`), 400 otherwise
 
 Routes:
@@ -70,14 +70,14 @@ Routes:
 
 All date operations use `datetime.now(timezone.utc).date()` throughout to avoid local/UTC mismatch.
 
-`_attach_payment_middleware(app)` — configures x402 with CDP facilitator and Bazaar discovery metadata for the two paid routes.
+`_attach_payment_middleware(app)` — configures x402 v2 middleware (x402ResourceServer + HTTPFacilitatorClient) for the two paid routes.
 
 ---
 
 ## Entry Point
 
 ### `run.py`
-`uvicorn.run(create_app(), host="0.0.0.0", port=8000)` — local dev launcher.
+Local dev launcher. Reads `PORT` from env (default `8000`). Run with `SKIP_PAYMENT=true python run.py` or `TESTNET=true MERCHANT_WALLET=0x... python run.py` for testnet mode.
 
 ---
 
@@ -114,7 +114,8 @@ Autouse fixture (`_temp_sqlite_db`) that, for every test, points `config.DB_PATH
 
 | File | Purpose |
 |------|---------|
-| `requirements.txt` | Runtime + dev dependencies |
+| `requirements.txt` | Runtime + dev dependencies (includes `cdp-sdk>=1.46.0`) |
 | `.env.example` | Template: set `MERCHANT_WALLET` and optionally `SKIP_PAYMENT=true` |
 | `sudoku_daily_spec.md` | Full product spec: puzzle design, x402 wiring, endpoint schemas |
-| `docs/superpowers/plans/2026-05-23-daily-sudoku-api.md` | Original implementation plan |
+| `scripts/setup_wallets.py` | One-time setup: creates CDP merchant wallet + local user wallet on Base Sepolia, funds ETH via CDP faucet, writes `.env.testnet` |
+| `scripts/test_testnet.py` | End-to-end testnet test: starts server subprocess with `TESTNET=true`, makes real x402 payments through all three steps |
